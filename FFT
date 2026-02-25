@@ -1,0 +1,73 @@
+% Task 2.2 — Rebuild the upper half of the FFT using conjugate symmetry
+% (so the IFFT is real and matches the original signal)
+%
+% Works for mono or stereo .wav (processes each channel independently).
+
+clear; clc; close all;
+
+% --- Load audio ---
+[x, Fs] = audioread("chimes.wav");     % put chimes.wav in current folder
+x = double(x);
+[N, nCh] = size(x);
+
+% --- FFT ---
+X = fft(x, N, 1);                      % FFT down rows (time axis)
+
+% --- Enforce conjugate symmetry about Nyquist ---
+% Indices (MATLAB is 1-based):
+% k = 1        -> DC bin (0 Hz)               (must be real)
+% k = N/2+1    -> Nyquist bin (Fs/2) if N even (must be real)
+% "Lower half" (positive freqs) are bins: 2 .. N/2
+% "Upper half" (negative freqs) are bins: N/2+2 .. N
+
+Xsym = X; % copy we will modify
+
+if mod(N,2) == 0
+    % Even N: has an exact Nyquist bin at kNyq = N/2 + 1
+    kNyq = N/2 + 1;
+
+    % Make DC and Nyquist purely real (numerical cleanup)
+    Xsym(1,:)    = real(Xsym(1,:));
+    Xsym(kNyq,:) = real(Xsym(kNyq,:));
+
+    % For k = 2 .. N/2, set the mirrored bins N-k+2 to conj(X(k))
+    kPos = 2:(N/2);                 % positive-frequency bins excluding DC and Nyquist
+    kNeg = N - kPos + 2;            % their mirrored (negative-frequency) bins
+    Xsym(kNeg,:) = conj(Xsym(kPos,:));
+
+else
+    % Odd N: no exact Nyquist bin
+    Xsym(1,:) = real(Xsym(1,:));    % DC should be real
+
+    kPos = 2:((N+1)/2);             % positive-frequency bins excluding DC
+    kNeg = N - kPos + 2;            % mirrored bins
+    Xsym(kNeg,:) = conj(Xsym(kPos,:));
+end
+
+% (Optional) If you literally want to "delete" then "replace":
+% Xsym((floor(N/2)+2):N,:) = 0;  % delete upper half
+% ...then do the mirroring assignment above.
+
+% --- IFFT ---
+x_rec = ifft(Xsym, N, 1, "symmetric"); % "symmetric" forces tiny imag parts to 0
+
+% --- Error check ---
+err = max(abs(x(:) - x_rec(:)));
+fprintf("Max abs reconstruction error: %.3e\n", err);
+
+% --- Listen / save (optional) ---
+% soundsc(x_rec, Fs);
+% audiowrite("chimes_recovered.wav", x_rec, Fs);
+
+% --- Quick plots (optional) ---
+t = (0:N-1)/Fs;
+figure; plot(t, x(:,1)); hold on; plot(t, x_rec(:,1), '--');
+xlabel("Time (s)"); ylabel("Amplitude"); legend("Original","Recovered");
+title("Time-domain: original vs recovered");
+
+% Plot magnitude spectrum (channel 1) for a sanity check
+f = (0:N-1)*(Fs/N);
+figure;
+plot(f, abs(X(:,1))); hold on; plot(f, abs(Xsym(:,1)), '--');
+xlim([0 Fs]); xlabel("Frequency (Hz)"); ylabel("|X(k)|");
+legend("Original FFT","Symmetry-enforced FFT"); title("FFT magnitude");
